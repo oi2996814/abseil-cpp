@@ -17,10 +17,13 @@
 #ifndef ABSL_RANDOM_INTERNAL_DISTRIBUTION_CALLER_H_
 #define ABSL_RANDOM_INTERNAL_DISTRIBUTION_CALLER_H_
 
+#include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include "absl/base/config.h"
 #include "absl/base/internal/fast_type_id.h"
+#include "absl/meta/type_traits.h"
 #include "absl/utility/utility.h"
 
 namespace absl {
@@ -32,6 +35,8 @@ namespace random_internal {
 // to intercept such calls.
 template <typename URBG>
 struct DistributionCaller {
+  static_assert(!std::is_pointer<URBG>::value,
+                "You must pass a reference, not a pointer.");
   // SFINAE to detect whether the URBG type includes a member matching
   // bool InvokeMock(base_internal::FastTypeIdType, void*, void*).
   //
