@@ -28,9 +28,6 @@ struct FastTypeTag {
   constexpr static char dummy_var = 0;
 };
 
-template <typename Type>
-constexpr char FastTypeTag<Type>::dummy_var;
-
 // FastTypeId<Type>() evaluates at compile/link-time to a unique pointer for the
 // passed-in type. These are meant to be good match for keys into maps or
 // straight up comparisons.

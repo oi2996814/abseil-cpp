@@ -43,12 +43,20 @@
 // pointers, and references to elements. Such invalidations are typically only
 // an issue if insertion and deletion operations are interleaved with the use of
 // more than one iterator, pointer, or reference simultaneously. For this
-// reason, `insert()` and `erase()` return a valid iterator at the current
-// position.
+// reason, `insert()`, `erase()`, and `extract_and_get_next()` return a valid
+// iterator at the current position.
+//
+// There are other API differences: first, btree iterators can be subtracted,
+// and this is faster than using `std::distance`. Additionally, btree
+// iterators can be advanced via `operator+=` and `operator-=`, which is faster
+// than using `std::advance`.
+//
+// B-tree sets are not exception-safe.
 
 #ifndef ABSL_CONTAINER_BTREE_SET_H_
 #define ABSL_CONTAINER_BTREE_SET_H_
 
+#include "absl/base/attributes.h"
 #include "absl/container/internal/btree.h"  // IWYU pragma: export
 #include "absl/container/internal/btree_container.h"  // IWYU pragma: export
 
@@ -61,7 +69,7 @@ template <typename Key>
 struct set_slot_policy;
 
 template <typename Key, typename Compare, typename Alloc, int TargetNodeSize,
-          bool Multi>
+          bool IsMulti>
 struct set_params;
 
 }  // namespace container_internal
@@ -83,11 +91,11 @@ struct set_params;
 //
 template <typename Key, typename Compare = std::less<Key>,
           typename Alloc = std::allocator<Key>>
-class btree_set
+class ABSL_ATTRIBUTE_OWNER btree_set
     : public container_internal::btree_set_container<
           container_internal::btree<container_internal::set_params<
               Key, Compare, Alloc, /*TargetNodeSize=*/256,
-              /*Multi=*/false>>> {
+              /*IsMulti=*/false>>> {
   using Base = typename btree_set::btree_set_container;
 
  public:
@@ -269,7 +277,8 @@ class btree_set
   // btree_set::extract()
   //
   // Extracts the indicated element, erasing it in the process, and returns it
-  // as a C++17-compatible node handle. Overloads are listed below.
+  // as a C++17-compatible node handle. Any references, pointers, or iterators
+  // are invalidated. Overloads are listed below.
   //
   // node_type extract(const_iterator position):
   //
@@ -288,6 +297,21 @@ class btree_set
   // containers (https://en.cppreference.com/w/cpp/container/node_handle).
   // It does NOT refer to the data layout of the underlying btree.
   using Base::extract;
+
+  // btree_set::extract_and_get_next()
+  //
+  // Extracts the indicated element, erasing it in the process, and returns it
+  // as a C++17-compatible node handle along with an iterator to the next
+  // element.
+  //
+  // extract_and_get_next_return_type extract_and_get_next(
+  //     const_iterator position):
+  //
+  //   Extracts the element at the indicated position, returns a struct
+  //   containing a member named `node`: a node handle owning that extracted
+  //   data and a member named `next`: an iterator pointing to the next element
+  //   in the btree.
+  using Base::extract_and_get_next;
 
   // btree_set::merge()
   //
@@ -423,11 +447,11 @@ typename btree_set<K, C, A>::size_type erase_if(btree_set<K, C, A> &set,
 //
 template <typename Key, typename Compare = std::less<Key>,
           typename Alloc = std::allocator<Key>>
-class btree_multiset
+class ABSL_ATTRIBUTE_OWNER btree_multiset
     : public container_internal::btree_multiset_container<
           container_internal::btree<container_internal::set_params<
               Key, Compare, Alloc, /*TargetNodeSize=*/256,
-              /*Multi=*/true>>> {
+              /*IsMulti=*/true>>> {
   using Base = typename btree_multiset::btree_multiset_container;
 
  public:
@@ -611,6 +635,21 @@ class btree_multiset
   // It does NOT refer to the data layout of the underlying btree.
   using Base::extract;
 
+  // btree_multiset::extract_and_get_next()
+  //
+  // Extracts the indicated element, erasing it in the process, and returns it
+  // as a C++17-compatible node handle along with an iterator to the next
+  // element.
+  //
+  // extract_and_get_next_return_type extract_and_get_next(
+  //     const_iterator position):
+  //
+  //   Extracts the element at the indicated position, returns a struct
+  //   containing a member named `node`: a node handle owning that extracted
+  //   data and a member named `next`: an iterator pointing to the next element
+  //   in the btree.
+  using Base::extract_and_get_next;
+
   // btree_multiset::merge()
   //
   // Extracts all elements from a given `source` btree_multiset into this
@@ -752,33 +791,24 @@ struct set_slot_policy {
   }
 
   template <typename Alloc>
+  static void construct(Alloc *alloc, slot_type *slot, const slot_type *other) {
+    absl::allocator_traits<Alloc>::construct(*alloc, slot, *other);
+  }
+
+  template <typename Alloc>
   static void destroy(Alloc *alloc, slot_type *slot) {
     absl::allocator_traits<Alloc>::destroy(*alloc, slot);
-  }
-
-  template <typename Alloc>
-  static void swap(Alloc * /*alloc*/, slot_type *a, slot_type *b) {
-    using std::swap;
-    swap(*a, *b);
-  }
-
-  template <typename Alloc>
-  static void move(Alloc * /*alloc*/, slot_type *src, slot_type *dest) {
-    *dest = std::move(*src);
   }
 };
 
 // A parameters structure for holding the type parameters for a btree_set.
 // Compare and Alloc should be nothrow copy-constructible.
 template <typename Key, typename Compare, typename Alloc, int TargetNodeSize,
-          bool Multi>
-struct set_params : common_params<Key, Compare, Alloc, TargetNodeSize, Multi,
-                                  set_slot_policy<Key>> {
+          bool IsMulti>
+struct set_params : common_params<Key, Compare, Alloc, TargetNodeSize, IsMulti,
+                                  /*IsMap=*/false, set_slot_policy<Key>> {
   using value_type = Key;
   using slot_type = typename set_params::common_params::slot_type;
-  using value_compare =
-      typename set_params::common_params::original_key_compare;
-  using is_map_container = std::false_type;
 
   template <typename V>
   static const V &key(const V &value) {
